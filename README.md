@@ -1,0 +1,251 @@
+# decision-provenance
+
+Tamper-evident audit logging for any ML inference pipeline.
+
+Designed for **EU AI Act Article 13** compliance (transparency obligations for high-risk AI systems).
+
+---
+
+## What it solves
+
+When a loan is denied, a resume is rejected, or a fraud flag fires — there is currently no standard way to prove:
+- Which exact model version made the call
+- What features it saw
+- What threshold was in effect at that moment
+- Whether any of those records have been altered since
+
+This library makes every automated decision cryptographically tamper-evident without requiring blockchain infrastructure.
+
+---
+
+## Architecture
+
+Three independent chains share one SQLite database:
+
+```
+LabelRegistry    → stable label IDs (L001, L002...)
+                   "approved" can be renamed; L001 never changes
+
+ConfigChain      → versioned threshold records
+                   threshold 0.55 → 0.65 is a ConfigRecord, not a mutation
+                   every change requires a mandatory change_reason
+
+MerkleChain      → decision records
+                   SHA-256(prev_root ∥ record_hash) per append
+                   prev_root assigned inside write lock — concurrency safe
+                   any mutation breaks every subsequent root
+```
+
+**What is in the decision hash:**
+`model_id + model_version + model_hash + input_hash + output_hash + label_id + config_id + timestamp`
+
+**What is deliberately NOT in the decision hash:**
+- `label_display` — a string that can be renamed without affecting the decision
+- `threshold` — lives in ConfigChain, referenced by `config_id`
+- `runtime_env` — informational only
+
+---
+
+## Install
+
+```bash
+git clone <repo>
+cd decision_provenance
+pip install -e .
+
+# Optional
+pip install requests      # IPFS per-record anchoring
+pip install web3          # EVM periodic chain root anchoring
+pip install fastapi uvicorn  # HTTP microservice wrapper
+```
+
+---
+
+## Quick start
+
+```python
+from decision_provenance import ProvenanceLogger
+
+logger = ProvenanceLogger(
+    model_id="loan_scorer",
+    model_version="2.3.1",
+    db_path="provenance.db",
+    anonymise_fn=lambda f: {k: v for k, v in f.items()
+                            if k not in ("name", "ssn", "email")},
+)
+
+# Register threshold config with mandatory audit trail
+logger.set_config(
+    threshold=0.6,
+    above_label="approved",
+    below_label="denied",
+    changed_by="data_team",
+    change_reason="initial production deployment",
+)
+
+# Wrap your model with one decorator
+@logger.log(score_fn=lambda out: out["score"])
+def predict(features: dict) -> dict:
+    return my_model(features)   # unchanged
+
+# Use normally — provenance logged automatically
+result = predict({"income": 95_000, "credit_score": 740, "debt_ratio": 0.28})
+```
+
+---
+
+## Threshold changes
+
+Every threshold change is a **new ConfigRecord**, not a mutation. It requires a reason:
+
+```python
+logger.set_config(
+    threshold=0.65,
+    above_label="approved",
+    below_label="denied",
+    changed_by="risk_committee",
+    change_reason="Q3 risk review: reduce default rate",
+)
+```
+
+The EU AI Act export shows the full config history alongside every decision,
+so an auditor can reconstruct which threshold was active for any record.
+
+---
+
+## Verification
+
+```python
+ok, message = logger.verify()
+# True  → "Chain intact — 1247 records, root=a3f8..."
+# False → "Root mismatch at seq=43: computed=... != stored=..."
+```
+
+The full chain is re-walked from genesis. No external service required.
+
+---
+
+## Export
+
+```python
+# Full JSONL audit log
+logger.export_audit_log("audit_log.jsonl")
+
+# EU AI Act Article 13 compliance report
+report = logger.export_eu_ai_act("compliance_report.json")
+# Includes: label_registry, config_history, decision_distribution, chain_integrity
+```
+
+---
+
+## On-chain anchoring (optional)
+
+Local SQLite is tamper-evident. External anchoring adds **public** verifiability —
+the chain root exists outside your infrastructure and cannot be altered retroactively.
+
+```python
+# Per-record IPFS anchor (closes the local-mutation window immediately)
+logger = ProvenanceLogger(
+    ...,
+    ipfs_anchor=True,
+    pinata_jwt=os.environ["PINATA_JWT"],
+)
+
+# Periodic EVM anchor every 100 records (public, unforgeable timestamp)
+logger = ProvenanceLogger(
+    ...,
+    evm_anchor_every=100,
+    evm_config={
+        "private_key":       os.environ["SIGNER_KEY"],
+        "contract_address":  "0x...",
+        "rpc_url":           "https://eth-mainnet.rpc.grove.city/v1/<app_id>",
+    },
+)
+```
+
+Deploy `contracts/ProvenanceRegistry.sol` once per organisation.
+~35,000 gas per EVM anchor call.
+
+---
+
+## FastAPI microservice
+
+```bash
+python -m decision_provenance.api
+```
+
+```
+POST /configure          initialise or reconfigure the logger
+POST /record             log one decision
+GET  /verify             verify chain integrity
+GET  /record/{id}        fetch single record
+GET  /export/audit       download JSONL audit log
+GET  /export/eu_ai_act   download compliance report
+GET  /health             liveness check
+```
+
+---
+
+## Concurrency
+
+Thread-safe by design. `prev_root` is assigned inside a module-level write lock —
+concurrent callers can never race on the same root. SQLite WAL mode ensures
+readers never block writers.
+
+---
+
+## Threat model
+
+| Threat | Protection |
+|--------|-----------|
+| DB record mutation | Merkle chain — any change breaks all subsequent roots |
+| Label string rename | Label registry — hash uses stable ID, not display string |
+| Threshold change covering tracks | ConfigChain — every change is a new record with mandatory reason |
+| Concurrent write corruption | Write lock + WAL mode |
+| Careless attacker flips label column | `label_id` is in hash; label_display is not — flipping display is detectable |
+| Determined attacker with DB access | External anchor (IPFS/EVM) — root already exists outside the DB |
+| Compromised model lying to logger | Out of scope — requires HSM + model signing at training time |
+
+---
+
+## Test suite
+
+```bash
+python -m pytest tests/ -v
+# 38 tests covering: hash determinism, label registry, config chain,
+# Merkle chain, tamper detection, input validation, concurrency,
+# EU AI Act export, threshold change audit trail
+```
+
+---
+
+## EU AI Act relevance
+
+Article 13 requires high-risk AI systems to enable:
+- Logging with sufficient granularity to identify the cause of results
+- Traceability of system operation
+- Version control of the model
+
+The `export_eu_ai_act()` output is structured for direct inclusion in conformity assessment documentation.
+
+---
+
+## File structure
+
+```
+decision_provenance/
+  __init__.py          public API
+  label_registry.py    stable label ID registry
+  config_record.py     versioned threshold config chain
+  record.py            canonical provenance record + hashing
+  chain.py             thread-safe Merkle chain (SQLite + WAL)
+  logger.py            ProvenanceLogger — main entry point
+  anchor.py            IPFS per-record + EVM periodic anchoring
+  api.py               FastAPI microservice wrapper
+contracts/
+  ProvenanceRegistry.sol   on-chain anchor registry
+examples/
+  loan_scorer_demo.py  full walkthrough
+tests/
+  test_all.py          38 tests, 100% pass
+```

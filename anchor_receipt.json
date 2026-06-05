@@ -1,0 +1,9 @@
+{
+  "backend": "evm",
+  "tx_hash": "a22f89733295a729b0d7142b49e13da49d1a6340836cde3a33d5d3be79edc7f5",
+  "block_number": 39610888,
+  "contract": "0x8E6e5B004818A796C8D4B098aCaD5cD86b9F4c32",
+  "chain_root": "a2c2759a03065fa179bd5b8e7c0370db39886be9dc72394b0b64d3f33a926d00",
+  "record_count": 5,
+  "anchored_at": "2026-06-05T08:25:15Z"
+}

@@ -1,0 +1,11 @@
+*.db
+*.db-wal
+*.db-shm
+*.pyc
+__pycache__/
+venv/
+*.egg-info/
+contract_address.txt
+deployment.json
+anchor_receipt.json
+.env
