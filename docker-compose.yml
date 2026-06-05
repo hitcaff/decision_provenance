@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  decision-provenance:
+    build: .
+    container_name: decision-provenance-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - provenance-data:/data
+    environment:
+      - DB_PATH=/data/provenance.db
+      - HOST=0.0.0.0
+      - PORT=8000
+      # Pass these from your environment:
+      # - PROVENANCE_SIGNER_KEY=${PROVENANCE_SIGNER_KEY}
+      # - POKT_RPC_URL=${POKT_RPC_URL}
+      # - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  provenance-data:
+    driver: local

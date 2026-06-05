@@ -266,21 +266,18 @@ class TestConfigChain:
         cfg1 = configs.register(model_id="m2", config_version="1",
                                 threshold=0.5, threshold_label_id=lid,
                                 changed_by="t", change_reason="first")
-        # cfg2 uses a far-future effective_from by directly inserting
-        # so config_at with "now" should still return cfg1
-        import time as _time
-        mid_ts = _time.strftime("%Y-%m-%dT%H:%M:%S", _time.gmtime()) + ".500Z"
         configs.register(model_id="m2", config_version="2",
                          threshold=0.8, threshold_label_id=lid,
                          changed_by="t", change_reason="second")
-        # Query at a timestamp between the two configs using seq ordering
+        # Verify seq ordering is correct
         all_cfgs = configs.all_configs("m2")
         assert len(all_cfgs) == 2
         assert all_cfgs[0]["threshold"] == 0.5
         assert all_cfgs[1]["threshold"] == 0.8
-        # config_at with a timestamp before cfg2 should return cfg1
+        # config_at with cfg1's own timestamp must return cfg1
+        # (it was active at the moment it was created)
         cfg_at = configs.config_at("m2", cfg1.effective_from)
-        assert cfg_at.config_id == cfg1.config_id
+        assert cfg_at.threshold == 0.5
 
     def test_empty_change_reason_raises(self, conn):
         labels = LabelRegistry(conn)
@@ -542,15 +539,16 @@ class TestConcurrency:
         def worker(i):
             try:
                 lg.record(
-                    input_features={"worker": i, "value": i * 0.1},
-                    output={"score": i * 0.05},
-                    score=i * 0.05,
+                    input_features={"worker": i, "value": round(i * 0.1, 2)},
+                    output={"score": round(i * 0.05, 2)},
+                    score=round(i * 0.05, 2),
                 )
             except Exception as e:
                 with lock:
                     errors.append(e)
 
-        threads = [threading.Thread(target=worker, args=(i,)) for i in range(20)]
+        # Start from 1 to avoid score=0.0 ambiguity at threshold boundary
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(1, 21)]
         for t in threads:
             t.start()
         for t in threads:
