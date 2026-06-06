@@ -655,7 +655,7 @@ function verify(){
   setTimeout(()=>{
     if(id===DEMO.record_id){document.getElementById('result').innerHTML=renderRecord(DEMO);return}
     if(!re.test(id)){showError('That doesn\'t look like a valid record ID 🤔\nExpected format: 60b655f6-85d7-4259-ae99-cd6bbd13db5f');return}
-    showError(`Record not found in demo data 🕵️\n\nTo query live records, start your FastAPI server:\n\n  docker run -d -p 8000:8000 hitcaff9/decision-provenance:latest\n\nThen this portal will query: GET /record/${id}`);
+  fetch(API_BASE_URL+'/record/'+id).then(r=>r.json()).then(data=>{if(data.detail)showError('Record not found 🕵️\n\nTry the demo record instead.');else document.getElementById('result').innerHTML=renderRecord(data);}).catch(()=>showError('API unreachable 😬\n\nFree server may be spinning up — wait 30s and retry.'));return;
   },800);
 }
 
