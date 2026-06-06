@@ -478,7 +478,7 @@ h1 .highlight{
     <div class="footer-links">
       <a href="https://github.com/hitcaff/decision_provenance" target="_blank">⭐ GitHub</a>
       <a href="https://pypi.org/project/decision-provenance/" target="_blank">📦 PyPI</a>
-      <a href="https://amoy.polygonscan.com/address/0xe516e5b3dbb50e4f25811be7de4f101d01f01de0" target="_blank">⛓ Contract</a>
+      <a href="https://amoy.polygonscan.com/address/0x8E6e5B004818A796C8D4B098aCaD5cD86b9F4c32" target="_blank">⛓ Contract</a>
     </div>
     <p class="footer-copy">Built with 💜 on Merkle chains + Polygon Amoy · decision-provenance v1.0.0</p>
   </footer>
@@ -510,7 +510,7 @@ const DEMO={
   prev_root:"0".repeat(64),
   _meta:{instrument:"NIFTY",direction:"LONG",confidence_pct:78,entry_zone:"24850–24870",stop_loss:24780,target_1:24950,target_2:25050,risk_reward:"1:2.3",market_bias:"bullish",fvg_entry_used:true},
   chain:{root:"1059e56d62c9ae3a8a4254e45c7a53674a908d42f21668e835aa1a1e48f11a81",record_count:7,valid:true},
-  anchor:{tx_hash:"a22f89733295a729b0d7142b49e13da49d1a6340836cde3a33d5d3be79edc7f5",block:39610888,network:"Polygon Amoy",contract:"0xe516e5b3dbb50e4f25811be7de4f101d01f01de0"}
+  anchor:{tx_hash:"a22f89733295a729b0d7142b49e13da49d1a6340836cde3a33d5d3be79edc7f5",block:39610888,network:"Polygon Amoy",contract:"0x8E6e5B004818A796C8D4B098aCaD5cD86b9F4c32"}
 };
 
 function trunc(s,n=32){if(!s)return'—';return s.length>n?s.slice(0,n)+'…':s}
@@ -646,6 +646,7 @@ function loadDemo(){
   setTimeout(()=>{document.getElementById('result').innerHTML=renderRecord(DEMO)},700);
 }
 
+const API_BASE_URL = "https://decision-provenance-latest.onrender.com";
 function verify(){
   const id=document.getElementById('record-input').value.trim();
   if(!id)return;
