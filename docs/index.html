@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Decision Provenance — Verify</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --sky:#f0f9ff;
+  --cloud:#ffffff;
+  --green:#22c55e;
+  --green-dark:#16a34a;
+  --purple:#a855f7;
+  --purple-dark:#7e22ce;
+  --orange:#f97316;
+  --yellow:#fbbf24;
+  --red:#ef4444;
+  --blue:#3b82f6;
+  --ink:#1e1b4b;
+  --ink2:#4c1d95;
+  --paper:#fefce8;
+}
+
+body{
+  background:var(--sky);
+  font-family:'Nunito',sans-serif;
+  min-height:100vh;
+  overflow-x:hidden;
+  position:relative;
+}
+
+/* Animated background blobs */
+.blob{
+  position:fixed;
+  border-radius:50%;
+  filter:blur(80px);
+  opacity:0.25;
+  animation:float 8s ease-in-out infinite;
+  pointer-events:none;
+  z-index:0;
+}
+.blob1{width:400px;height:400px;background:#a855f7;top:-100px;left:-100px;animation-delay:0s}
+.blob2{width:350px;height:350px;background:#22c55e;top:30%;right:-80px;animation-delay:2s}
+.blob3{width:300px;height:300px;background:#f97316;bottom:10%;left:20%;animation-delay:4s}
+
+@keyframes float{
+  0%,100%{transform:translateY(0) scale(1)}
+  50%{transform:translateY(-30px) scale(1.05)}
+}
+
+/* Stars */
+.stars{position:fixed;inset:0;pointer-events:none;z-index:0}
+.star{
+  position:absolute;
+  width:8px;height:8px;
+  background:var(--yellow);
+  clip-path:polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);
+  animation:twinkle 3s ease-in-out infinite;
+}
+@keyframes twinkle{0%,100%{opacity:0.3;transform:scale(1)}50%{opacity:1;transform:scale(1.3)}}
+
+.container{
+  position:relative;z-index:1;
+  max-width:780px;
+  margin:0 auto;
+  padding:48px 24px 80px;
+}
+
+/* Header */
+.header{text-align:center;margin-bottom:48px}
+
+.logo-bounce{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:80px;height:80px;
+  background:white;
+  border-radius:50%;
+  border:4px solid var(--ink);
+  box-shadow:5px 5px 0 var(--ink);
+  margin-bottom:20px;
+  animation:bounce 2s ease-in-out infinite;
+  font-size:36px;
+}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+
+h1{
+  font-family:'Fredoka One',cursive;
+  font-size:clamp(42px,8vw,72px);
+  color:var(--ink);
+  line-height:1;
+  letter-spacing:-1px;
+  text-shadow:4px 4px 0 rgba(168,85,247,0.3);
+  margin-bottom:12px;
+}
+h1 .highlight{
+  color:var(--purple);
+  display:inline-block;
+  animation:wiggle 3s ease-in-out infinite;
+}
+@keyframes wiggle{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg)}}
+
+.tagline{
+  font-size:17px;
+  color:#6b7280;
+  font-weight:600;
+  max-width:480px;
+  margin:0 auto;
+  line-height:1.5;
+}
+
+/* Search box */
+.search-card{
+  background:white;
+  border-radius:24px;
+  border:3px solid var(--ink);
+  box-shadow:6px 6px 0 var(--ink);
+  padding:28px;
+  margin-bottom:32px;
+  transition:transform 0.2s,box-shadow 0.2s;
+}
+.search-card:hover{transform:translate(-2px,-2px);box-shadow:8px 8px 0 var(--ink)}
+
+.search-label{
+  font-family:'Fredoka One',cursive;
+  font-size:15px;
+  color:var(--ink2);
+  letter-spacing:0.05em;
+  text-transform:uppercase;
+  margin-bottom:12px;
+  display:block;
+}
+
+.search-row{
+  display:flex;
+  gap:0;
+  border:3px solid var(--ink);
+  border-radius:16px;
+  overflow:hidden;
+  margin-bottom:16px;
+}
+
+#record-input{
+  flex:1;
+  background:#faf5ff;
+  border:none;
+  outline:none;
+  padding:14px 18px;
+  font-family:'Nunito',sans-serif;
+  font-size:14px;
+  font-weight:700;
+  color:var(--ink);
+  letter-spacing:0.02em;
+}
+#record-input::placeholder{color:#c4b5fd;font-weight:600}
+
+#verify-btn{
+  background:var(--purple);
+  border:none;
+  border-left:3px solid var(--ink);
+  padding:14px 24px;
+  color:white;
+  font-family:'Fredoka One',cursive;
+  font-size:16px;
+  cursor:pointer;
+  letter-spacing:0.03em;
+  transition:background 0.15s,transform 0.1s;
+  white-space:nowrap;
+}
+#verify-btn:hover{background:var(--purple-dark);transform:scale(1.02)}
+#verify-btn:active{transform:scale(0.97)}
+
+.demo-btn{
+  width:100%;
+  background:var(--yellow);
+  border:3px solid var(--ink);
+  border-radius:14px;
+  padding:13px;
+  color:var(--ink);
+  font-family:'Fredoka One',cursive;
+  font-size:15px;
+  cursor:pointer;
+  transition:all 0.15s;
+  box-shadow:3px 3px 0 var(--ink);
+  letter-spacing:0.03em;
+}
+.demo-btn:hover{background:#f59e0b;transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--ink)}
+.demo-btn:active{transform:translate(1px,1px);box-shadow:2px 2px 0 var(--ink)}
+
+/* Loading */
+.loading-box{
+  background:white;
+  border-radius:20px;
+  border:3px solid var(--ink);
+  box-shadow:5px 5px 0 var(--ink);
+  padding:32px;
+  text-align:center;
+  margin-top:24px;
+}
+.loading-dots{display:flex;justify-content:center;gap:8px;margin-bottom:16px}
+.dot{
+  width:14px;height:14px;
+  background:var(--purple);
+  border-radius:50%;
+  border:2px solid var(--ink);
+  animation:dotbounce 0.8s ease-in-out infinite;
+}
+.dot:nth-child(2){animation-delay:0.15s;background:var(--green)}
+.dot:nth-child(3){animation-delay:0.3s;background:var(--orange)}
+@keyframes dotbounce{0%,80%,100%{transform:scale(0.8)}40%{transform:scale(1.3)}}
+.loading-text{font-family:'Fredoka One',cursive;font-size:18px;color:var(--ink2)}
+
+/* Error */
+.error-box{
+  background:#fff1f2;
+  border-radius:20px;
+  border:3px solid var(--red);
+  box-shadow:5px 5px 0 var(--red);
+  padding:24px;
+  margin-top:24px;
+  font-family:'Nunito',sans-serif;
+  font-weight:700;
+  color:#991b1b;
+  font-size:14px;
+  line-height:1.6;
+  white-space:pre-line;
+}
+
+/* Result */
+#result{margin-top:0}
+
+/* Status banner */
+.status-banner{
+  border-radius:20px 20px 0 0;
+  border:3px solid var(--ink);
+  border-bottom:none;
+  padding:20px 24px;
+  display:flex;
+  align-items:center;
+  gap:14px;
+}
+.status-banner.valid{background:#dcfce7}
+.status-banner.invalid{background:#fee2e2}
+
+.status-emoji{font-size:28px;animation:pop 0.4s cubic-bezier(0.175,0.885,0.32,1.275)}
+@keyframes pop{0%{transform:scale(0)}100%{transform:scale(1)}}
+
+.status-title{
+  font-family:'Fredoka One',cursive;
+  font-size:20px;
+  color:var(--ink);
+}
+.status-sub{
+  font-size:13px;
+  font-weight:700;
+  color:#6b7280;
+  margin-top:2px;
+}
+.status-badge{
+  margin-left:auto;
+  padding:6px 14px;
+  border-radius:20px;
+  border:2px solid var(--ink);
+  font-family:'Fredoka One',cursive;
+  font-size:13px;
+}
+.valid .status-badge{background:#22c55e;color:white}
+.invalid .status-badge{background:#ef4444;color:white}
+
+/* Cards stack */
+.cards{
+  border:3px solid var(--ink);
+  border-radius:0 0 20px 20px;
+  overflow:hidden;
+}
+.card{
+  background:white;
+  padding:24px;
+  border-bottom:3px solid var(--ink);
+}
+.card:last-child{border-bottom:none}
+.card:nth-child(even){background:#faf5ff}
+
+.card-title{
+  font-family:'Fredoka One',cursive;
+  font-size:15px;
+  color:var(--purple);
+  letter-spacing:0.05em;
+  text-transform:uppercase;
+  margin-bottom:16px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.card-icon{
+  width:28px;height:28px;
+  background:var(--purple);
+  border-radius:8px;
+  border:2px solid var(--ink);
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;
+}
+
+.kv-grid{display:grid;grid-template-columns:150px 1fr;gap:8px 16px}
+.kv-key{
+  font-size:12px;
+  font-weight:800;
+  color:#9ca3af;
+  text-transform:uppercase;
+  letter-spacing:0.06em;
+  padding-top:3px;
+}
+.kv-val{
+  font-size:13px;
+  font-weight:700;
+  color:var(--ink);
+  word-break:break-all;
+  line-height:1.5;
+  font-family:'Courier New',monospace;
+}
+.kv-val.hash{color:#7c3aed;font-size:11px}
+.kv-val.big{font-family:'Fredoka One',cursive;font-size:18px;letter-spacing:0.02em}
+.kv-val.good{color:var(--green-dark)}
+.kv-val.bad{color:var(--red)}
+
+/* Pill badges */
+.pill{
+  display:inline-block;
+  padding:4px 12px;
+  border-radius:20px;
+  border:2px solid var(--ink);
+  font-family:'Fredoka One',cursive;
+  font-size:14px;
+  box-shadow:2px 2px 0 var(--ink);
+}
+.pill.long{background:#dcfce7;color:#166534}
+.pill.short{background:#fee2e2;color:#991b1b}
+.pill.trade{background:#dbeafe;color:#1e40af}
+.pill.notrade{background:#f3f4f6;color:#374151}
+.pill.approved{background:#dcfce7;color:#166534}
+.pill.denied{background:#fee2e2;color:#991b1b}
+
+/* Chain vis */
+.chain-track{position:relative;padding-left:28px}
+.chain-track::before{
+  content:'';
+  position:absolute;
+  left:9px;top:16px;bottom:16px;
+  width:3px;
+  background:repeating-linear-gradient(to bottom,var(--purple) 0,var(--purple) 6px,transparent 6px,transparent 10px);
+  border-radius:2px;
+}
+.chain-item{
+  position:relative;
+  margin-bottom:16px;
+}
+.chain-item::before{
+  content:'';
+  position:absolute;
+  left:-22px;top:6px;
+  width:14px;height:14px;
+  background:white;
+  border:3px solid var(--purple);
+  border-radius:50%;
+}
+.chain-item.current::before{
+  background:var(--purple);
+  box-shadow:0 0 0 3px #ddd6fe;
+}
+.chain-node-label{font-size:11px;font-weight:800;color:#9ca3af;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px}
+.chain-node-hash{font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:#7c3aed;word-break:break-all}
+
+/* Anchor card */
+.anchor-card{
+  background:linear-gradient(135deg,#eff6ff,#dbeafe);
+  border:3px solid var(--blue);
+  border-radius:16px;
+  padding:18px 20px;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  box-shadow:4px 4px 0 var(--blue);
+  margin-top:12px;
+}
+.anchor-icon-box{
+  width:44px;height:44px;
+  background:var(--blue);
+  border-radius:12px;
+  border:2px solid var(--ink);
+  display:flex;align-items:center;justify-content:center;
+  font-size:22px;
+  flex-shrink:0;
+}
+.anchor-info{flex:1}
+.anchor-info strong{display:block;font-family:'Fredoka One',cursive;font-size:15px;color:var(--ink);margin-bottom:3px}
+.anchor-info span{font-family:'Courier New',monospace;font-size:11px;color:#6b7280;word-break:break-all}
+.anchor-link{
+  padding:10px 16px;
+  background:var(--blue);
+  color:white;
+  text-decoration:none;
+  font-family:'Fredoka One',cursive;
+  font-size:13px;
+  border-radius:10px;
+  border:2px solid var(--ink);
+  box-shadow:3px 3px 0 var(--ink);
+  transition:all 0.15s;
+  white-space:nowrap;
+  flex-shrink:0;
+}
+.anchor-link:hover{background:#2563eb;transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--ink)}
+
+/* Footer */
+.footer{
+  margin-top:56px;
+  text-align:center;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:16px;
+}
+.footer-links{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.footer-links a{
+  padding:8px 18px;
+  background:white;
+  border:2px solid var(--ink);
+  border-radius:20px;
+  font-family:'Fredoka One',cursive;
+  font-size:14px;
+  color:var(--ink);
+  text-decoration:none;
+  box-shadow:3px 3px 0 var(--ink);
+  transition:all 0.15s;
+}
+.footer-links a:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--ink)}
+.footer-copy{font-size:13px;font-weight:700;color:#9ca3af}
+
+/* Divider */
+.or-row{display:flex;align-items:center;gap:12px;margin:12px 0;color:#d1d5db}
+.or-row::before,.or-row::after{content:'';flex:1;height:2px;background:#e5e7eb;border-radius:1px}
+.or-text{font-family:'Fredoka One',cursive;font-size:13px;color:#d1d5db}
+</style>
+</head>
+<body>
+
+<!-- Animated blobs -->
+<div class="blob blob1"></div>
+<div class="blob blob2"></div>
+<div class="blob blob3"></div>
+
+<!-- Twinkling stars -->
+<div class="stars" id="stars"></div>
+
+<div class="container">
+
+  <header class="header">
+    <div class="logo-bounce">🔗</div>
+    <h1>Verify any<br><span class="highlight">AI decision!</span></h1>
+    <p class="tagline">Paste a record ID and we'll show you the full cryptographic proof — inputs, outputs, model version, and on-chain anchor 🎉</p>
+  </header>
+
+  <div class="search-card">
+    <label class="search-label" for="record-input">🔍 Record ID</label>
+    <div class="search-row">
+      <input id="record-input" type="text" placeholder="60b655f6-85d7-4259-ae99-..." autocomplete="off" spellcheck="false"/>
+      <button id="verify-btn" onclick="verify()">Verify! →</button>
+    </div>
+    <div class="or-row"><span class="or-text">or try a demo</span></div>
+    <button class="demo-btn" onclick="loadDemo()">✨ Load demo record</button>
+  </div>
+
+  <div id="result"></div>
+
+  <footer class="footer">
+    <div class="footer-links">
+      <a href="https://github.com/hitcaff/decision_provenance" target="_blank">⭐ GitHub</a>
+      <a href="https://pypi.org/project/decision-provenance/" target="_blank">📦 PyPI</a>
+      <a href="https://amoy.polygonscan.com/address/0x8E6e5B004818A796C8D4B098aCaD5cD86b9F4c32" target="_blank">⛓ Contract</a>
+    </div>
+    <p class="footer-copy">Built with 💜 on Merkle chains + Polygon Amoy · decision-provenance v1.0.0</p>
+  </footer>
+
+</div>
+
+<script>
+// Generate stars
+const starsEl = document.getElementById('stars');
+for(let i=0;i<20;i++){
+  const s=document.createElement('div');
+  s.className='star';
+  s.style.cssText=`left:${Math.random()*100}%;top:${Math.random()*100}%;width:${6+Math.random()*6}px;height:${6+Math.random()*6}px;animation-delay:${Math.random()*3}s;animation-duration:${2+Math.random()*2}s`;
+  starsEl.appendChild(s);
+}
+
+const DEMO={
+  record_id:"60b655f6-85d7-4259-ae99-cd6bbd13db5f",
+  session_id:"2026-06-05_pre_market_NIFTY",
+  timestamp_iso:"2026-06-05T04:15:22Z",
+  model_id:"indian-market-agent",
+  model_version:"2.0.0",
+  model_hash:"a7f3c91d"+"0".repeat(56),
+  input_hash:"3f8a2c1d9e4b7a0f5c2e8d3b6a9f1e4c7b0d3e6a9c2f5b8e1d4a7c0f3b6e9a2",
+  output_hash:"8b2e5f1a4c7d0e3b6f9a2c5e8b1d4f7a0c3e6b9d2f5a8c1e4b7d0f3a6c9e2b5",
+  record_hash:"1059e56d62c9ae3a8a4254e45c7a53674a908d42f21668e835aa1a1e48f11a81",
+  label_id:"L001",label_display:"TRADE",
+  config_id:"962bc01a-d0dd-4083-b5c3-24bed12556b1",
+  prev_root:"0".repeat(64),
+  _meta:{instrument:"NIFTY",direction:"LONG",confidence_pct:78,entry_zone:"24850–24870",stop_loss:24780,target_1:24950,target_2:25050,risk_reward:"1:2.3",market_bias:"bullish",fvg_entry_used:true},
+  chain:{root:"1059e56d62c9ae3a8a4254e45c7a53674a908d42f21668e835aa1a1e48f11a81",record_count:7,valid:true},
+  anchor:{tx_hash:"a22f89733295a729b0d7142b49e13da49d1a6340836cde3a33d5d3be79edc7f5",block:39610888,network:"Polygon Amoy",contract:"0x8E6e5B004818A796C8D4B098aCaD5cD86b9F4c32"}
+};
+
+function trunc(s,n=32){if(!s)return'—';return s.length>n?s.slice(0,n)+'…':s}
+
+function pillClass(v){
+  const l=(v||'').toLowerCase();
+  if(l==='long'||l==='approved'||l==='trade')return l==='trade'?'trade':'approved';
+  if(l==='short'||l==='denied'||l==='no trade')return l==='no trade'?'notrade':'denied';
+  return '';
+}
+
+function dirEmoji(v){
+  const l=(v||'').toLowerCase();
+  if(l==='long'||l==='approved'||l==='trade')return '🟢';
+  if(l==='short'||l==='denied')return '🔴';
+  return '⚪';
+}
+
+function renderRecord(rec){
+  const m=rec._meta||{},ch=rec.chain||{},an=rec.anchor||{};
+  const valid=ch.valid!==false;
+  const dir=m.direction||rec.label_display||'—';
+  const pc=pillClass(dir);
+
+  return `
+<div style="margin-top:24px;animation:fadeUp 0.4s ease">
+  <div class="status-banner ${valid?'valid':'invalid'}">
+    <div class="status-emoji">${valid?'✅':'❌'}</div>
+    <div>
+      <div class="status-title">${valid?'Chain intact!':'Chain broken!'}</div>
+      <div class="status-sub">${ch.record_count||'?'} records verified</div>
+    </div>
+    <div class="status-badge">${valid?'VALID':'TAMPERED'}</div>
+  </div>
+  <div class="cards">
+
+    <div class="card">
+      <div class="card-title"><div class="card-icon">📋</div>Decision</div>
+      <div class="kv-grid">
+        <span class="kv-key">Record ID</span>
+        <span class="kv-val hash">${rec.record_id||'—'}</span>
+        <span class="kv-key">Timestamp</span>
+        <span class="kv-val">${rec.timestamp_iso||'—'}</span>
+        <span class="kv-key">Instrument</span>
+        <span class="kv-val big">${m.instrument||'—'}</span>
+        <span class="kv-key">Direction</span>
+        <span class="kv-val"><span class="pill ${pc}">${dirEmoji(dir)} ${dir}</span></span>
+        <span class="kv-key">Confidence</span>
+        <span class="kv-val big ${m.confidence_pct>=65?'good':'bad'}">${m.confidence_pct!==undefined?m.confidence_pct+'%':'—'}</span>
+        <span class="kv-key">Entry zone</span>
+        <span class="kv-val">${m.entry_zone||'—'}</span>
+        <span class="kv-key">Stop loss</span>
+        <span class="kv-val bad">${m.stop_loss||'—'}</span>
+        <span class="kv-key">Target 1</span>
+        <span class="kv-val good">${m.target_1||'—'}</span>
+        <span class="kv-key">Target 2</span>
+        <span class="kv-val good">${m.target_2||'—'}</span>
+        <span class="kv-key">R:R ratio</span>
+        <span class="kv-val">${m.risk_reward||'—'}</span>
+        <span class="kv-key">FVG entry</span>
+        <span class="kv-val ${m.fvg_entry_used?'good':''}">${m.fvg_entry_used?'✓ Yes':'No'}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="card-icon">🤖</div>Model</div>
+      <div class="kv-grid">
+        <span class="kv-key">Model ID</span>
+        <span class="kv-val">${rec.model_id||'—'}</span>
+        <span class="kv-key">Version</span>
+        <span class="kv-val big">${rec.model_version||'—'}</span>
+        <span class="kv-key">Model hash</span>
+        <span class="kv-val hash">${trunc(rec.model_hash,40)}</span>
+        <span class="kv-key">Input hash</span>
+        <span class="kv-val hash">${trunc(rec.input_hash,40)}</span>
+        <span class="kv-key">Output hash</span>
+        <span class="kv-val hash">${trunc(rec.output_hash,40)}</span>
+        <span class="kv-key">Record hash</span>
+        <span class="kv-val hash">${trunc(rec.record_hash,40)}</span>
+        <span class="kv-key">Config ID</span>
+        <span class="kv-val hash">${trunc(rec.config_id,40)}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="card-icon">⛓</div>Merkle chain</div>
+      <div class="chain-track">
+        <div class="chain-item">
+          <div class="chain-node-label">prev root</div>
+          <div class="chain-node-hash">${trunc(rec.prev_root||'0'.repeat(64),52)}</div>
+        </div>
+        <div class="chain-item current">
+          <div class="chain-node-label">chain root (this record)</div>
+          <div class="chain-node-hash">${trunc(ch.root||rec.record_hash,52)}</div>
+        </div>
+      </div>
+    </div>
+
+    ${an.tx_hash?`
+    <div class="card">
+      <div class="card-title"><div class="card-icon">🌐</div>On-chain anchor</div>
+      <div class="anchor-card">
+        <div class="anchor-icon-box">⛓</div>
+        <div class="anchor-info">
+          <strong>${an.network||'Polygon Amoy'} · Block ${an.block||'—'}</strong>
+          <span>tx: ${trunc(an.tx_hash,40)}</span>
+        </div>
+        <a class="anchor-link" href="https://amoy.polygonscan.com/tx/${an.tx_hash}" target="_blank">View →</a>
+      </div>
+    </div>`:''}
+
+  </div>
+</div>`;
+}
+
+function showLoading(){
+  document.getElementById('result').innerHTML=`
+    <div class="loading-box">
+      <div class="loading-dots">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      </div>
+      <div class="loading-text">Verifying the chain... 🔍</div>
+    </div>`;
+}
+
+function showError(msg){
+  document.getElementById('result').innerHTML=`<div class="error-box">😬 ${msg}</div>`;
+}
+
+function loadDemo(){
+  document.getElementById('record-input').value=DEMO.record_id;
+  showLoading();
+  setTimeout(()=>{document.getElementById('result').innerHTML=renderRecord(DEMO)},700);
+}
+
+function verify(){
+  const id=document.getElementById('record-input').value.trim();
+  if(!id)return;
+  const re=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  showLoading();
+  setTimeout(()=>{
+    if(id===DEMO.record_id){document.getElementById('result').innerHTML=renderRecord(DEMO);return}
+    if(!re.test(id)){showError('That doesn\'t look like a valid record ID 🤔\nExpected format: 60b655f6-85d7-4259-ae99-cd6bbd13db5f');return}
+    showError(`Record not found in demo data 🕵️\n\nTo query live records, start your FastAPI server:\n\n  docker run -d -p 8000:8000 hitcaff9/decision-provenance:latest\n\nThen this portal will query: GET /record/${id}`);
+  },800);
+}
+
+document.getElementById('record-input').addEventListener('keydown',e=>{if(e.key==='Enter')verify()});
+
+// Add fadeUp animation dynamically
+const sty=document.createElement('style');
+sty.textContent='@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}';
+document.head.appendChild(sty);
+</script>
+</body>
+</html>
