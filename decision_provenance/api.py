@@ -27,6 +27,7 @@ from typing import Optional
 try:
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import FileResponse, JSONResponse
+    from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel, Field, field_validator
 except ImportError:
     raise ImportError("pip install fastapi uvicorn  to use the API server")
@@ -41,6 +42,20 @@ app = FastAPI(
     title="Decision Provenance API",
     description="Tamper-evident audit logging for ML inference pipelines",
     version="1.0.0",
+)
+
+# CORS — allow requests from GitHub Pages portal and any localhost dev server
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://hitcaff.github.io",
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:5500",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 _logger: Optional[ProvenanceLogger] = None
