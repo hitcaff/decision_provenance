@@ -529,9 +529,17 @@ class TestConcurrency:
 
     def test_concurrent_writes_no_corruption(self, tmp_db):
         """20 threads writing simultaneously — chain must verify clean."""
+        import time as _time
         lg = ProvenanceLogger(model_id="concurrent", model_version="1", db_path=tmp_db)
         lg.set_config(threshold=0.5, above_label="yes", below_label="no",
                       changed_by="t", change_reason="t")
+
+        # Give SQLite a moment to fully commit the config before threads start
+        _time.sleep(0.05)
+
+        # Pre-fetch config so all threads use the same object — no DB race
+        cfg = lg.current_config()
+        assert cfg is not None, "Config must be registered before spawning threads"
 
         errors = []
         lock = threading.Lock()
@@ -542,6 +550,7 @@ class TestConcurrency:
                     input_features={"worker": i, "value": round(i * 0.1, 2)},
                     output={"score": round(i * 0.05, 2)},
                     score=round(i * 0.05, 2),
+                    config=cfg,   # pass pre-fetched config — no per-thread DB read
                 )
             except Exception as e:
                 with lock:
