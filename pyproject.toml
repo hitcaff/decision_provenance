@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "decision-provenance"
-version = "1.1.0"
+version = "1.1.1"
 description = "Tamper-evident audit logging for ML inference pipelines. Built for EU AI Act Article 13 compliance."
 readme = "README.md"
 license = {text = "MIT"}

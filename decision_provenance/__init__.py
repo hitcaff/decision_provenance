@@ -20,7 +20,7 @@ from .label_registry import LabelRegistry
 from .genesis import GenesisChain, GenesisRecord, CURRENT_SCHEMA
 from .anchor import anchor_record_ipfs, anchor_root_evm
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 __all__ = [
     "ProvenanceLogger",
