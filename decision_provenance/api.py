@@ -29,6 +29,7 @@ try:
     from fastapi.responses import FileResponse, JSONResponse
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel, Field, field_validator
+    from typing import Optional
 except ImportError:
     raise ImportError("pip install fastapi uvicorn  to use the API server")
 
@@ -154,6 +155,12 @@ def configure(req: ConfigureRequest):
             db_path=req.db_path,
             input_schema_version=req.input_schema_version,
         )
+        # Init chain if no genesis exists yet
+        if _logger.genesis.current(req.model_id) is None:
+            _logger.init_chain(
+                changed_by=req.changed_by,
+                reason=f"API initialisation: {req.change_reason}",
+            )
 
     cfg = _logger.set_config(
         threshold=req.threshold,
@@ -222,6 +229,64 @@ def get_record(record_id: str):
     return JSONResponse(content=rec)
 
 
+@app.get("/records", tags=["Audit"])
+def search_records(
+    label_id: Optional[str] = None,
+    label_display: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    genesis_id: Optional[str] = None,
+    schema_version: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """
+    Search decision records with optional filters.
+
+    All filters are ANDed. Supports pagination via limit/offset.
+    """
+    lg = get_logger()
+    results = lg.search(
+        label_id=label_id,
+        label_display=label_display,
+        date_from=date_from,
+        date_to=date_to,
+        genesis_id=genesis_id,
+        schema_version=schema_version,
+        limit=limit,
+        offset=offset,
+    )
+    total = lg.count(
+        label_id=label_id,
+        label_display=label_display,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return JSONResponse(content={
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "records": results,
+    })
+
+
+@app.get("/records/count", tags=["Audit"])
+def count_records(
+    label_id: Optional[str] = None,
+    label_display: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+):
+    """Count matching records without fetching them."""
+    lg = get_logger()
+    return {"count": lg.count(
+        label_id=label_id,
+        label_display=label_display,
+        date_from=date_from,
+        date_to=date_to,
+    )}
+
+
 @app.get("/export/audit", tags=["Export"])
 def export_audit():
     """Download the full JSONL audit log."""
@@ -254,11 +319,21 @@ def export_eu_ai_act():
 def health():
     """Liveness check."""
     lg = _logger
+    genesis = None
+    if lg:
+        g = lg.genesis.current(lg.model_id)
+        genesis = {
+            "genesis_id": g.genesis_id if g else None,
+            "schema_version": g.schema_version if g else None,
+            "created_by": g.created_by if g else None,
+        }
     return {
         "status": "ok",
+        "version": "1.1.0",
         "logger_ready": lg is not None,
         "model_id": lg.model_id if lg else None,
         "record_count": lg.chain.record_count if lg else 0,
+        "genesis": genesis,
     }
 
 

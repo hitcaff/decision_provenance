@@ -1,31 +1,17 @@
 """
-logger.py — ProvenanceLogger: the single entry point for all provenance operations.
+logger.py — ProvenanceLogger v1.1
 
-Orchestrates:
-  LabelRegistry   → stable label IDs, never hash the display string
-  ConfigChain     → versioned threshold records, separate from decisions
-  MerkleChain     → tamper-evident decision chain
-  per-record IPFS → optional, closes local-mutation window immediately
-
-Quick start:
-    logger = ProvenanceLogger(
-        model_id="loan_scorer",
-        model_version="2.3.1",
-    )
-    logger.set_config(
-        threshold=0.6,
-        above_label="approved",
-        below_label="denied",
-        changed_by="data_team",
-        change_reason="initial deployment",
-    )
-
-    @logger.log(score_fn=lambda out: out["score"])
-    def predict(features: dict) -> dict:
-        ...
+New in v1.1:
+  - init_chain()    — explicit genesis record (required before first record)
+  - migrate_chain() — schema upgrade with audit trail
+  - record_async()  — async version of record() for FastAPI/async agents
+  - log_async()     — async decorator
+  - search()        — query records with filters
+  - count()         — count matching records
 """
 from __future__ import annotations
 
+import asyncio
 import functools
 import hashlib
 import sqlite3
@@ -33,10 +19,11 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .record import build_record, ProvenanceRecord, ValidationError
+from .record import build_record, ProvenanceRecord, ValidationError, RECORD_SCHEMA_VERSION
 from .chain import MerkleChain
 from .config_record import ConfigChain, ConfigRecord
 from .label_registry import LabelRegistry
+from .genesis import GenesisChain, GenesisRecord, CURRENT_SCHEMA
 
 
 def _hash_model_tag(model_id: str, model_version: str) -> str:
@@ -45,22 +32,24 @@ def _hash_model_tag(model_id: str, model_version: str) -> str:
 
 class ProvenanceLogger:
     """
-    Wrap any ML inference function to log tamper-evident provenance records.
+    Tamper-evident audit logger for ML inference pipelines.
 
-    Args:
-        model_id:             Human name of the model
-        model_version:        Semver or git SHA
-        model_hash:           SHA-256 of serialised weights. If None, derived
-                              from model_id + model_version.
-        db_path:              Path to the SQLite database
-        input_schema_version: Version of your feature schema
-        anonymise_fn:         Optional PII stripper — runs before any hashing
-        ipfs_anchor:          If True, every record is pinned to IPFS immediately.
-                              Requires 'requests'. Pass pinata_jwt or ipfs_url below.
-        pinata_jwt:           Pinata JWT for IPFS pinning (optional)
-        ipfs_url:             Local IPFS node URL (default: http://localhost:5001)
-        evm_anchor_every:     Anchor chain root to EVM every N records (0 = disabled)
-        evm_config:           Dict with keys: private_key, contract_address, rpc_url
+    Usage:
+        logger = ProvenanceLogger(model_id="loan_scorer", model_version="2.3.1")
+
+        # Required before first record — explicit operator intent
+        logger.init_chain(changed_by="data_team", reason="production deployment")
+
+        logger.set_config(threshold=0.6, above_label="approved",
+                          below_label="denied", changed_by="ops",
+                          change_reason="initial config")
+
+        @logger.log(score_fn=lambda out: out["score"])
+        def predict(features): ...
+
+        # Async variant
+        @logger.log_async(score_fn=lambda out: out["score"])
+        async def predict_async(features): ...
     """
 
     def __init__(
@@ -93,13 +82,57 @@ class ProvenanceLogger:
         self.evm_anchor_every = evm_anchor_every
         self.evm_config = evm_config or {}
 
-        # Single shared connection — WAL mode handles concurrent reads
         self._conn = sqlite3.connect(str(Path(db_path)), check_same_thread=False)
         self.labels  = LabelRegistry(self._conn)
         self.configs = ConfigChain(self._conn)
         self.chain   = MerkleChain(self._conn)
+        self.genesis  = GenesisChain(self._conn)
+        self._genesis_cache: Optional[GenesisRecord] = None  # cached after init_chain
 
         self._anchor_receipts: list[dict] = []
+
+    # ------------------------------------------------------------------
+    # Genesis chain management
+    # ------------------------------------------------------------------
+
+    def init_chain(self, *, changed_by: str, reason: str) -> GenesisRecord:
+        """
+        Explicitly initialise the provenance chain with a genesis record.
+        Must be called before logging any decisions.
+        """
+        rec = self.genesis.init(
+            model_id=self.model_id,
+            created_by=changed_by,
+            reason=reason,
+            schema_version=CURRENT_SCHEMA,
+        )
+        self._genesis_cache = rec
+        return rec
+
+    def migrate_chain(self, *, changed_by: str, reason: str) -> GenesisRecord:
+        """Start a new genesis segment for a schema upgrade."""
+        rec = self.genesis.migrate(
+            model_id=self.model_id,
+            changed_by=changed_by,
+            reason=reason,
+            target_schema=CURRENT_SCHEMA,
+        )
+        self._genesis_cache = rec
+        return rec
+
+    def _require_genesis(self) -> GenesisRecord:
+        """Return cached genesis or query DB once, then cache."""
+        if self._genesis_cache is not None:
+            return self._genesis_cache
+        g = self.genesis.current(self.model_id)
+        if g is None:
+            raise RuntimeError(
+                f"No genesis record found for model '{self.model_id}'. "
+                f"Call logger.init_chain(changed_by=..., reason=...) before "
+                f"logging any decisions."
+            )
+        self._genesis_cache = g
+        return g
 
     # ------------------------------------------------------------------
     # Config management
@@ -115,24 +148,10 @@ class ProvenanceLogger:
         changed_by: str,
         change_reason: str,
     ) -> ConfigRecord:
-        """
-        Register a new threshold configuration. Must be called before any
-        inference if no prior config exists.
-
-        Args:
-            threshold:      Decision boundary 0.0–1.0
-            above_label:    Label assigned when score >= threshold
-            below_label:    Label assigned when score < threshold
-            config_version: Optional version tag (auto-incremented if None)
-            changed_by:     Who/what is making this change
-            change_reason:  Why the config is changing (mandatory)
-        """
         above_id = self.labels.register(above_label)
-        self.labels.register(below_label)   # ensure both are registered
-
+        self.labels.register(below_label)
         existing = self.configs.all_configs(self.model_id)
         cv = config_version or f"cfg-{len(existing) + 1}"
-
         return self.configs.register(
             model_id=self.model_id,
             config_version=cv,
@@ -146,7 +165,7 @@ class ProvenanceLogger:
         return self.configs.current_config(self.model_id)
 
     # ------------------------------------------------------------------
-    # Core record method
+    # Core record method (sync)
     # ------------------------------------------------------------------
 
     def record(
@@ -159,35 +178,26 @@ class ProvenanceLogger:
         config: Optional[ConfigRecord] = None,
     ) -> dict:
         """
-        Log one decision. Returns a summary dict with record_id and chain_root.
-
-        Args:
-            input_features: Raw feature dict (PII stripped by anonymise_fn if set)
-            output:         Raw model output dict
-            score:          Scalar score used to determine the label
-            session_id:     Optional caller-supplied request ID
-            config:         Override active config (uses current_config() if None)
+        Log one decision synchronously.
+        Requires init_chain() to have been called first.
         """
+        g = self._require_genesis()
         cfg = config or self.current_config()
         if cfg is None:
             raise RuntimeError(
                 "No config registered. Call set_config() before logging decisions."
             )
 
-        # Determine label from score
         if score >= cfg.threshold:
             label_id = cfg.threshold_label_id
         else:
-            # Find the below-threshold label: first label that isn't the above label
             all_labels = self.labels.all_labels()
-            below_ids = [lid for lid, _ in all_labels.items() if lid != cfg.threshold_label_id]
+            below_ids = [lid for lid in all_labels if lid != cfg.threshold_label_id]
             if not below_ids:
                 raise RuntimeError("No below-threshold label registered. Call set_config().")
             label_id = below_ids[0]
 
         label_display = self.labels.get_display(label_id) or label_id
-
-        # Anonymise before hashing
         safe_input = self.anonymise_fn(input_features) if self.anonymise_fn else input_features
 
         rec = build_record(
@@ -199,62 +209,68 @@ class ProvenanceLogger:
             label_id=label_id,
             label_display=label_display,
             config_id=cfg.config_id,
+            genesis_id=g.genesis_id,
+            schema_version=g.schema_version,
             input_schema_version=self.input_schema_version,
             session_id=session_id,
         )
 
         new_root = self.chain.append(rec)
 
-        # Per-record IPFS anchor
-        ipfs_receipt = None
-        if self.ipfs_anchor:
-            from .anchor import anchor_record_ipfs
-            try:
-                ipfs_receipt = anchor_record_ipfs(
-                    record_id=rec.record_id,
-                    model_id=self.model_id,
-                    record_hash=rec.record_hash,
-                    chain_root=new_root,
-                    pinata_jwt=self.pinata_jwt,
-                    ipfs_url=self.ipfs_url,
-                )
-                self._anchor_receipts.append(ipfs_receipt)
-            except Exception as e:
-                # Anchor failure is non-fatal — local chain is still intact
-                ipfs_receipt = {"error": str(e)}
-
-        # Periodic EVM anchor
-        evm_receipt = None
-        if self.evm_anchor_every > 0 and self.chain.record_count % self.evm_anchor_every == 0:
-            from .anchor import anchor_root_evm
-            try:
-                evm_receipt = anchor_root_evm(
-                    chain_root=new_root,
-                    record_count=self.chain.record_count,
-                    model_id=self.model_id,
-                    **self.evm_config,
-                )
-                self._anchor_receipts.append(evm_receipt)
-            except Exception as e:
-                evm_receipt = {"error": str(e)}
+        ipfs_receipt = self._maybe_anchor_ipfs(rec, new_root)
+        evm_receipt = self._maybe_anchor_evm(new_root)
 
         return {
-            "record_id":    rec.record_id,
-            "session_id":   rec.session_id,
+            "record_id":     rec.record_id,
+            "session_id":    rec.session_id,
             "timestamp_iso": rec.timestamp_iso,
-            "label_id":     label_id,
+            "label_id":      label_id,
             "label_display": label_display,
-            "score":        score,
-            "threshold":    cfg.threshold,
-            "config_id":    cfg.config_id,
-            "chain_root":   new_root,
-            "record_count": self.chain.record_count,
-            "ipfs_receipt": ipfs_receipt,
-            "evm_receipt":  evm_receipt,
+            "score":         score,
+            "threshold":     cfg.threshold,
+            "config_id":     cfg.config_id,
+            "genesis_id":    g.genesis_id,
+            "schema_version": g.schema_version,
+            "chain_root":    new_root,
+            "record_count":  self.chain.record_count,
+            "ipfs_receipt":  ipfs_receipt,
+            "evm_receipt":   evm_receipt,
         }
 
     # ------------------------------------------------------------------
-    # Decorator API
+    # Async record method
+    # ------------------------------------------------------------------
+
+    async def record_async(
+        self,
+        *,
+        input_features: dict,
+        output: dict,
+        score: float,
+        session_id: Optional[str] = None,
+        config: Optional[ConfigRecord] = None,
+    ) -> dict:
+        """
+        Async version of record(). Runs the sync DB operation in a thread pool
+        so it doesn't block the event loop.
+
+        Use this in FastAPI endpoints, async agent pipelines, or anywhere
+        you're already in an async context.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self.record(
+                input_features=input_features,
+                output=output,
+                score=score,
+                session_id=session_id,
+                config=config,
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Decorator API (sync)
     # ------------------------------------------------------------------
 
     def log(
@@ -263,13 +279,7 @@ class ProvenanceLogger:
         score_fn: Callable[[dict], float],
         session_id_fn: Optional[Callable[[dict], str]] = None,
     ):
-        """
-        Decorator that wraps a predict(features: dict) -> dict function.
-
-        Args:
-            score_fn:       Maps raw output dict → scalar float score
-            session_id_fn:  Maps input features → session ID (optional)
-        """
+        """Decorator that wraps a sync predict(features: dict) -> dict function."""
         def decorator(fn: Callable[[dict], dict]):
             @functools.wraps(fn)
             def wrapper(input_features: dict, **kwargs) -> dict:
@@ -285,7 +295,99 @@ class ProvenanceLogger:
         return decorator
 
     # ------------------------------------------------------------------
-    # Verification + export
+    # Decorator API (async)
+    # ------------------------------------------------------------------
+
+    def log_async(
+        self,
+        *,
+        score_fn: Callable[[dict], float],
+        session_id_fn: Optional[Callable[[dict], str]] = None,
+    ):
+        """
+        Decorator that wraps an async predict function.
+
+        Usage:
+            @logger.log_async(score_fn=lambda out: out["score"])
+            async def predict(features: dict) -> dict:
+                return await my_async_model(features)
+        """
+        def decorator(fn):
+            @functools.wraps(fn)
+            async def wrapper(input_features: dict, **kwargs) -> dict:
+                output = await fn(input_features, **kwargs)
+                await self.record_async(
+                    input_features=input_features,
+                    output=output,
+                    score=score_fn(output),
+                    session_id=session_id_fn(input_features) if session_id_fn else None,
+                )
+                return output
+            return wrapper
+        return decorator
+
+    # ------------------------------------------------------------------
+    # Search and count
+    # ------------------------------------------------------------------
+
+    def search(
+        self,
+        *,
+        label_id: Optional[str] = None,
+        label_display: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        genesis_id: Optional[str] = None,
+        schema_version: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """
+        Search decision records with optional filters.
+
+        Args:
+            label_id:       filter by stable label ID (e.g. "L001")
+            label_display:  filter by display string (e.g. "approved")
+            date_from:      ISO timestamp lower bound (inclusive)
+            date_to:        ISO timestamp upper bound (inclusive)
+            genesis_id:     filter by genesis segment
+            schema_version: filter by record schema version
+            limit:          max records to return (default 100)
+            offset:         pagination offset
+
+        Returns list of full record dicts.
+        """
+        return self.chain.search(
+            model_id=self.model_id,
+            label_id=label_id,
+            label_display=label_display,
+            date_from=date_from,
+            date_to=date_to,
+            genesis_id=genesis_id,
+            schema_version=schema_version,
+            limit=limit,
+            offset=offset,
+        )
+
+    def count(
+        self,
+        *,
+        label_id: Optional[str] = None,
+        label_display: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+    ) -> int:
+        """Count matching records without fetching them."""
+        return self.chain.count(
+            model_id=self.model_id,
+            label_id=label_id,
+            label_display=label_display,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+    # ------------------------------------------------------------------
+    # Verification and export
     # ------------------------------------------------------------------
 
     def verify(self) -> tuple[bool, str]:
@@ -295,16 +397,11 @@ class ProvenanceLogger:
         return self.chain.export_jsonl(output_path)
 
     def export_eu_ai_act(self, output_path: str | Path = "eu_ai_act_report.json") -> dict:
-        """
-        Structured compliance report for EU AI Act Article 13.
-        Decision distribution uses label display strings (human-readable)
-        but the audit trail references stable label IDs throughout.
-        """
-        import json, time
+        import json, time as _time
         ok, msg = self.verify()
-
         rows = self._conn.execute(
-            """SELECT label_id, label_display, config_id, timestamp_iso, record_id, chain_root
+            """SELECT label_id, label_display, config_id, timestamp_iso,
+                      record_id, chain_root, genesis_id, schema_version
                FROM records ORDER BY seq ASC"""
         ).fetchall()
 
@@ -315,27 +412,30 @@ class ProvenanceLogger:
 
         report = {
             "report_schema":   "eu_ai_act_art13_v2",
-            "generated_at":    time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "generated_at":    _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
             "system": {
                 "model_id":      self.model_id,
                 "model_version": self.model_version,
                 "model_hash":    self.model_hash,
             },
+            "genesis_history": [g.to_dict() for g in self.genesis.all_for_model(self.model_id)],
             "label_registry":  self.labels.all_labels(),
             "config_history":  self.configs.all_configs(self.model_id),
             "audit_summary": {
-                "total_decisions":    len(rows),
+                "total_decisions":       len(rows),
                 "decision_distribution": label_dist,
-                "chain_integrity":    {"valid": ok, "message": msg},
-                "chain_root":         self.chain.current_root,
+                "chain_integrity":       {"valid": ok, "message": msg},
+                "chain_root":            self.chain.current_root,
             },
             "records": [
                 {
-                    "record_id":   r[4],
-                    "timestamp_iso": r[3],
-                    "label_id":    r[0],
-                    "label_display": r[1],
-                    "config_id":   r[2],
+                    "record_id":          r[4],
+                    "timestamp_iso":      r[3],
+                    "label_id":           r[0],
+                    "label_display":      r[1],
+                    "config_id":          r[2],
+                    "genesis_id":         r[6],
+                    "schema_version":     r[7],
                     "chain_root_at_time": r[5],
                 }
                 for r in rows
@@ -347,6 +447,49 @@ class ProvenanceLogger:
 
     def get_record(self, record_id: str) -> Optional[dict]:
         return self.chain.get_record(record_id)
+
+    # ------------------------------------------------------------------
+    # Anchoring helpers
+    # ------------------------------------------------------------------
+
+    def _maybe_anchor_ipfs(self, rec: ProvenanceRecord, new_root: str) -> Optional[dict]:
+        if not self.ipfs_anchor:
+            return None
+        from .anchor import anchor_record_ipfs
+        try:
+            receipt = anchor_record_ipfs(
+                record_id=rec.record_id,
+                model_id=self.model_id,
+                record_hash=rec.record_hash,
+                chain_root=new_root,
+                pinata_jwt=self.pinata_jwt,
+                ipfs_url=self.ipfs_url,
+            )
+            self._anchor_receipts.append(receipt)
+            return receipt
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _maybe_anchor_evm(self, new_root: str) -> Optional[dict]:
+        if not (self.evm_anchor_every > 0 and
+                self.chain.record_count % self.evm_anchor_every == 0):
+            return None
+        from .anchor import anchor_root_evm
+        try:
+            receipt = anchor_root_evm(
+                chain_root=new_root,
+                record_count=self.chain.record_count,
+                model_id=self.model_id,
+                **self.evm_config,
+            )
+            self._anchor_receipts.append(receipt)
+            return receipt
+        except Exception as e:
+            return {"error": str(e)}
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
     def close(self):
         self._conn.close()

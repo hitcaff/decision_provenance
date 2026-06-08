@@ -1,17 +1,19 @@
 """
-record.py — canonical provenance record.
+record.py — canonical provenance record v1.1
+
+New in v1.1:
+  - schema_version: committed in the hash — closes retroactive relabelling attack
+  - genesis_id: cryptographic FK to the genesis record that started this chain
 
 What's in the hash:
-  model_id + model_version + model_hash
-  input_hash + output_hash
-  label_id  (stable ID, never the display string)
-  config_id (reference to the active config record — threshold lives there)
-  timestamp + session_id
+  record_id, session_id, timestamp_utc, model_id, model_version, model_hash,
+  input_hash, output_hash, label_id, config_id, input_schema_version,
+  schema_version, genesis_id
 
 What's NOT in the hash (by design):
-  label display string  — changes without affecting the decision
-  threshold value       — lives in config_record chain, joined by config_id
-  runtime_env           — informational only
+  label_display  — display string, can be renamed
+  threshold      — lives in ConfigChain, referenced by config_id
+  runtime_env    — informational only
 """
 from __future__ import annotations
 
@@ -22,6 +24,8 @@ import time
 import uuid
 from dataclasses import dataclass, asdict, field
 from typing import Any, Optional
+
+RECORD_SCHEMA_VERSION = "1.1"
 
 
 def _sha256(text: str) -> str:
@@ -42,7 +46,6 @@ def _validate_features(features: Any, name: str = "features"):
     if not features:
         raise ValidationError(f"{name} must not be empty")
     try:
-        # Strict: no default= so non-serialisable types raise TypeError
         json.dumps(features, separators=(",", ":"), sort_keys=True)
     except (TypeError, ValueError) as e:
         raise ValidationError(f"{name} contains non-serialisable value: {e}") from e
@@ -57,14 +60,16 @@ class ProvenanceRecord:
     model_id: str
     model_version: str
     model_hash: str
-    input_hash: str          # SHA-256 of canonical input JSON
-    output_hash: str         # SHA-256 of canonical output JSON
-    label_id: str            # stable ID from LabelRegistry (e.g. "L001")
-    label_display: str       # human-readable, NOT in hash
-    config_id: str           # FK to ConfigRecord — threshold lives there
+    input_hash: str
+    output_hash: str
+    label_id: str
+    label_display: str        # NOT in hash
+    config_id: str
     input_schema_version: str
-    runtime_env: dict
-    prev_root: str           # Merkle chaining
+    schema_version: str       # NEW in v1.1 — IN hash
+    genesis_id: str           # NEW in v1.1 — IN hash
+    runtime_env: dict         # NOT in hash
+    prev_root: str
     record_hash: str = field(default="")
 
     def __post_init__(self):
@@ -79,11 +84,6 @@ class ProvenanceRecord:
 
 
 def _compute_record_hash(r: ProvenanceRecord) -> str:
-    """
-    Canonical hash payload.
-    Includes label_id (stable) and config_id (references threshold).
-    Excludes label_display and runtime_env (informational only).
-    """
     payload = {
         "record_id":            r.record_id,
         "session_id":           r.session_id,
@@ -93,9 +93,11 @@ def _compute_record_hash(r: ProvenanceRecord) -> str:
         "model_hash":           r.model_hash,
         "input_hash":           r.input_hash,
         "output_hash":          r.output_hash,
-        "label_id":             r.label_id,       # stable ID, not display string
-        "config_id":            r.config_id,      # references threshold record
+        "label_id":             r.label_id,
+        "config_id":            r.config_id,
         "input_schema_version": r.input_schema_version,
+        "schema_version":       r.schema_version,    # v1.1
+        "genesis_id":           r.genesis_id,        # v1.1
     }
     return _sha256(_canonical(payload))
 
@@ -110,17 +112,20 @@ def build_record(
     label_id: str,
     label_display: str,
     config_id: str,
+    genesis_id: str,
     input_schema_version: str = "1.0",
+    schema_version: str = RECORD_SCHEMA_VERSION,
     session_id: Optional[str] = None,
     prev_root: str = "",
 ) -> ProvenanceRecord:
-    # Validate before hashing
     _validate_features(input_features, "input_features")
     _validate_features(output, "output")
     if not label_id.strip():
         raise ValidationError("label_id must not be empty")
     if not config_id.strip():
         raise ValidationError("config_id must not be empty")
+    if not genesis_id.strip():
+        raise ValidationError("genesis_id must not be empty — call logger.init_chain() first")
 
     ts = time.time()
     return ProvenanceRecord(
@@ -136,6 +141,8 @@ def build_record(
         label_id=label_id,
         label_display=label_display,
         config_id=config_id,
+        genesis_id=genesis_id,
+        schema_version=schema_version,
         input_schema_version=input_schema_version,
         runtime_env={
             "python": platform.python_version(),

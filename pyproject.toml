@@ -1,14 +1,26 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+build-backend = "setuptools.backends.legacy:build"
 
 [project]
 name = "decision-provenance"
-version = "1.0.0"
-description = "Tamper-evident audit logging for ML inference pipelines."
+version = "1.1.0"
+description = "Tamper-evident audit logging for ML inference pipelines. Built for EU AI Act Article 13 compliance."
 readme = "README.md"
 license = {text = "MIT"}
-authors = [{name = "Hitesh Srivastava", email = "srivastavahitesh09@gmail.com"}]
+authors = [
+    {name = "Hitesh Srivastava", email = "srivastavahitesh09@gmail.com"}
+]
+keywords = ["machine-learning", "audit", "provenance", "compliance", "eu-ai-act", "blockchain", "merkle"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 requires-python = ">=3.10"
 dependencies = []
 
@@ -20,6 +32,7 @@ all  = ["requests>=2.28", "web3>=6.0", "fastapi>=0.100", "uvicorn>=0.22", "pydan
 
 [project.urls]
 Homepage = "https://github.com/hitcaff/decision_provenance"
+Repository = "https://github.com/hitcaff/decision_provenance"
 
 [tool.setuptools.packages.find]
 where = ["."]
