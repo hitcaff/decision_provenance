@@ -258,3 +258,5 @@ compliance certification requires your own legal review.
 - Verification portal: https://hitcaff.github.io/decision_provenance
 - Contract (verified): https://amoy.polygonscan.com/address/0xe516e5b3dbb50e4f25811be7de4f101d01f01de0#code
 - Live integration: https://github.com/hitcaff/indian-market-agent
+
+- **Article:** https://hitcaff.hashnode.dev/mutable-database-rows-are-not-audit-trails
