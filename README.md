@@ -166,7 +166,7 @@ logger = ProvenanceLogger(
     evm_anchor_every=100,
     evm_config={
         "private_key":      os.environ["SIGNER_KEY"],
-        "contract_address": "0xe516e5b3dbb50e4f25811be7de4f101d01f01de0",
+        "contract_address": "0x31e8841C3511177847dbAbF289EdFC6f60CB1fb3",
         "rpc_url":          os.environ["POKT_RPC_URL"],
     },
 )
@@ -175,7 +175,7 @@ logger = ProvenanceLogger(
 Deploy contracts/ProvenanceRegistry.sol once per organisation. ~35,000 gas per anchor call on Polygon.
 
 Verified contract on Polygonscan:
-https://amoy.polygonscan.com/address/0xe516e5b3dbb50e4f25811be7de4f101d01f01de0#code
+https://amoy.polygonscan.com/address/0x31e8841C3511177847dbAbF289EdFC6f60CB1fb3#code
 
 ---
 
@@ -256,7 +256,7 @@ compliance certification requires your own legal review.
 - PyPI: https://pypi.org/project/decision-provenance/
 - Docker: https://hub.docker.com/r/hitcaff9/decision-provenance
 - Verification portal: https://hitcaff.github.io/decision_provenance
-- Contract (verified): https://amoy.polygonscan.com/address/0xe516e5b3dbb50e4f25811be7de4f101d01f01de0#code
+- Contract (verified): https://amoy.polygonscan.com/address/0x31e8841C3511177847dbAbF289EdFC6f60CB1fb3#code
 - Live integration: https://github.com/hitcaff/indian-market-agent
 
 - **Article:** https://hitcaff.hashnode.dev/mutable-database-rows-are-not-audit-trails
